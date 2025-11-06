@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini Dual-Mode AI Bot</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom font for a clean look */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7fafc; /* Light gray background */
+        }
+        /* Custom scrollbar for better aesthetics */
+        #chat-history::-webkit-scrollbar, #image-output::-webkit-scrollbar {
+            width: 8px;
+        }
+        #chat-history::-webkit-scrollbar-thumb, #image-output::-webkit-scrollbar-thumb {
+            background-color: #cbd5e1;
+            border-radius: 4px;
+        }
+        /* Spinner styles */
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 4px solid white;
+            width: 24px;
+            height: 24px;
+            -webkit-animation: spin 1s linear infinite;
+            animation: spin 1s linear infinite;
+            display: none; /* Initially hidden */
+        }
+        .spinner-active {
+            display: inline-block;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <!-- Main Container -->
+    <div class="w-full max-w-2xl bg-white shadow-2xl rounded-xl overflow-hidden">
+
+        <!-- Header and Mode Switch -->
+        <header class="p-4 bg-indigo-600 text-white shadow-lg">
+            <h1 class="text-2xl font-bold">AI Assistant</h1>
+            <p class="text-indigo-200 text-sm">Chat or Generate Images instantly.</p>
+        </header>
+
+        <div class="flex border-b border-gray-200">
+            <!-- REMOVED onclick="setMode('chat')" -->
+            <button id="chat-tab"
+                class="flex-1 py-3 text-center transition-all duration-300 font-medium rounded-t-lg
+                       bg-indigo-50 text-indigo-700 border-b-2 border-indigo-500">
+                💬 Chat Mode
+            </button>
+            <!-- REMOVED onclick="setMode('image')" -->
+            <button id="image-tab"
+                class="flex-1 py-3 text-center transition-all duration-300 font-medium text-gray-600 hover:bg-gray-50">
+                🖼️ Image Generator
+            </button>
+        </div>
+
+        <!-- Content Area -->
+        <main class="p-6">
+
+            <!-- Chat Mode UI -->
+            <div id="chat-mode" class="space-y-4">
+                <div id="chat-history" class="h-80 overflow-y-auto p-3 bg-gray-50 rounded-lg border border-gray-200 flex flex-col space-y-4">
+                    <!-- Chat messages will appear here -->
+                    <div class="flex justify-start">
+                        <div class="bg-indigo-100 text-indigo-900 p-3 rounded-xl rounded-tl-none max-w-[80%] shadow-sm">
+                            Hello! How can I assist you with text generation today?
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex gap-2">
+                    <input type="text" id="chat-input" placeholder="Ask a question or start a conversation..."
+                           class="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition-all shadow-sm">
+                    <!-- REMOVED onclick="handleChat()" -->
+                    <button id="chat-button"
+                            class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-4 rounded-lg transition-all shadow-md flex items-center justify-center">
+                        <span class="button-text">Send</span>
+                        <div id="chat-spinner" class="spinner ml-2"></div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Image Generator Mode UI -->
+            <div id="image-mode" class="space-y-4 hidden">
+                <div id="image-output" class="h-80 flex items-center justify-center bg-gray-50 rounded-lg border border-gray-200 overflow-hidden relative">
+                    <p id="image-placeholder" class="text-gray-400">Your generated image will appear here.</p>
+                    <!-- Image will be inserted here -->
+                </div>
+
+                <div class="flex gap-2">
+                    <input type="text" id="image-input" placeholder="Describe the image you want to generate (e.g., 'A cat wearing a top hat, digital art')..."
+                           class="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-pink-500 focus:border-pink-500 transition-all shadow-sm">
+                    <!-- REMOVED onclick="handleImageGeneration()" -->
+                    <button id="image-button"
+                            class="bg-pink-600 hover:bg-pink-700 text-white font-semibold py-3 px-4 rounded-lg transition-all shadow-md flex items-center justify-center">
+                        <span class="button-text">Generate</span>
+                        <div id="image-spinner" class="spinner ml-2"></div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Error/Status Message Box (Custom Alert) -->
+            <div id="status-message" class="mt-4 p-3 hidden rounded-lg text-sm transition-all" role="alert"></div>
+
+        </main>
+    </div>
+
+    <script type="module">
+        // Global variables provided by the environment
+        const apiKey = ""; // API key is provided by the execution environment
+
+        // Models
+        const CHAT_MODEL = "gemini-2.5-flash-preview-09-2025";
+        const IMAGE_MODEL = "imagen-3.0-generate-002"; // Preferred for simple image generation
+
+        // --- State and UI Elements ---
+        let currentMode = 'chat';
+
+        const chatModeDiv = document.getElementById('chat-mode');
+        const imageModeDiv = document.getElementById('image-mode');
+        const chatTab = document.getElementById('chat-tab');
+        const imageTab = document.getElementById('image-tab');
+        const chatInput = document.getElementById('chat-input');
+        const chatHistory = document.getElementById('chat-history');
+        const imageInput = document.getElementById('image-input');
+        const imageOutput = document.getElementById('image-output');
+        const imagePlaceholder = document.getElementById('image-placeholder');
+        const statusMessage = document.getElementById('status-message');
+
+        const chatButton = document.getElementById('chat-button');
+        const imageButton = document.getElementById('image-button');
+        const chatSpinner = document.getElementById('chat-spinner');
+        const imageSpinner = document.getElementById('image-spinner');
+
+
+        // --- Utility Functions ---
+
+        /** Shows a temporary status message in the custom alert box. */
+        function showStatus(message, type = 'error') {
+            statusMessage.textContent = message;
+            statusMessage.classList.remove('hidden', 'bg-red-100', 'text-red-800', 'bg-green-100', 'text-green-800');
+            if (type === 'error') {
+                statusMessage.classList.add('bg-red-100', 'text-red-800');
+            } else {
+                statusMessage.classList.add('bg-green-100', 'text-green-800');
+            }
+            setTimeout(() => {
+                statusMessage.classList.add('hidden');
+            }, 5000);
+        }
+
+        /** Handles mode switching (Chat vs. Image). */
+        function setMode(mode) {
+            currentMode = mode;
+            if (mode === 'chat') {
+                chatModeDiv.classList.remove('hidden');
+                imageModeDiv.classList.add('hidden');
+                chatTab.classList.add('bg-indigo-50', 'text-indigo-700', 'border-indigo-500');
+                chatTab.classList.remove('text-gray-600', 'hover:bg-gray-50', 'border-b-0');
+                imageTab.classList.remove('bg-indigo-50', 'text-indigo-700', 'border-indigo-500');
+                imageTab.classList.add('text-gray-600', 'hover:bg-gray-50', 'border-b-0');
+            } else {
+                chatModeDiv.classList.add('hidden');
+                imageModeDiv.classList.remove('hidden');
+                imageTab.classList.add('bg-indigo-50', 'text-indigo-700', 'border-indigo-500');
+                imageTab.classList.remove('text-gray-600', 'hover:bg-gray-50', 'border-b-0');
+                chatTab.classList.remove('bg-indigo-50', 'text-indigo-700', 'border-indigo-500');
+                chatTab.classList.add('text-gray-600', 'hover:bg-gray-50', 'border-b-0');
+            }
+        }
+
+        /** Scrolls the chat history to the bottom. */
+        function scrollChatToBottom() {
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
+        /** Sets loading state for a specific button. */
+        function setLoading(button, spinner, isLoading, defaultText) {
+            button.disabled = isLoading;
+            button.classList.toggle('opacity-50', isLoading);
+            
+            // Find the span that holds the text
+            let textSpan = button.querySelector('.button-text');
+            
+            if (isLoading) {
+                if (textSpan) textSpan.classList.add('hidden');
+                spinner.classList.add('spinner-active');
+            } else {
+                if (textSpan) {
+                    textSpan.classList.remove('hidden');
+                    // Setting text is redundant here but safe
+                    textSpan.textContent = defaultText; 
+                }
+                spinner.classList.remove('spinner-active');
+            }
+        }
+
+
+        // --- Core API Logic (with Exponential Backoff) ---
+
+        /** Implements API call with exponential backoff for retries. */
+        async function fetchWithBackoff(url, options, maxRetries = 5) {
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.ok) {
+                        return response;
+                    }
+                    if (response.status === 429 || response.status >= 500) {
+                        const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+                        console.warn(`API request failed with status ${response.status}. Retrying in ${delay}ms...`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        continue;
+                    }
+                    throw new Error(`API error: ${response.statusText}`);
+                } catch (error) {
+                    if (i === maxRetries - 1) {
+                        throw error;
+                    }
+                    const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+                    console.warn(`Fetch error: ${error.message}. Retrying in ${delay}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+        }
+
+        /** --- CHAT MODE HANDLERS --- */
+
+        /** Adds a message bubble to the chat history. */
+        function addMessage(text, isUser) {
+            const container = document.createElement('div');
+            container.className = `flex ${isUser ? 'justify-end' : 'justify-start'}`;
+
+            const bubble = document.createElement('div');
+            bubble.className = `p-3 rounded-xl max-w-[80%] shadow-sm ${isUser
+                ? 'bg-indigo-600 text-white rounded-br-none'
+                : 'bg-indigo-100 text-indigo-900 rounded-tl-none'}`;
+
+            // Simple markdown/line break conversion
+            bubble.innerHTML = text.replace(/\n/g, '<br>');
+
+            container.appendChild(bubble);
+            chatHistory.appendChild(container);
+            scrollChatToBottom();
+        }
+
+        /** Fetches text response from Gemini API. */
+        async function fetchChatResponse(prompt) {
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${CHAT_MODEL}:generateContent?key=${apiKey}`;
+
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: {
+                    parts: [{ text: "You are a friendly and helpful general-purpose AI chatbot. Keep your responses concise." }]
+                },
+                tools: [{ "google_search": {} }], // Enable grounding for current info
+            };
+
+            const options = {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            };
+
+            const response = await fetchWithBackoff(apiUrl, options);
+            const result = await response.json();
+
+            const text = result.candidates?.[0]?.content?.parts?.[0]?.text || "Sorry, I encountered an issue generating a response.";
+            return text;
+        }
+
+        /** Handles the chat button click/enter key event. */
+        async function handleChat() {
+            const prompt = chatInput.value.trim();
+            if (!prompt) return;
+
+            addMessage(prompt, true);
+            chatInput.value = '';
+
+            try {
+                setLoading(chatButton, chatSpinner, true, 'Send');
+
+                const responseText = await fetchChatResponse(prompt);
+                addMessage(responseText, false);
+
+            } catch (error) {
+                addMessage("Error: Could not connect to the AI model. Check your API key or network connection.", false);
+                console.error("Chat API Error:", error);
+                showStatus("Failed to get chat response. Please check the console for details.", 'error');
+            } finally {
+                setLoading(chatButton, chatSpinner, false, 'Send');
+            }
+        }
+
+        /** --- IMAGE MODE HANDLERS --- */
+
+        /** Fetches image generation from Imagen API. */
+        async function fetchImageResponse(prompt) {
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${IMAGE_MODEL}:predict?key=${apiKey}`;
+
+            const payload = {
+                instances: {
+                    prompt: prompt
+                },
+                parameters: {
+                    sampleCount: 1,
+                    outputMimeType: "image/png"
+                }
+            };
+
+            const options = {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            };
+
+            const response = await fetchWithBackoff(apiUrl, options);
+            const result = await response.json();
+
+            const base64Data = result?.predictions?.[0]?.bytesBase64Encoded;
+
+            if (!base64Data) {
+                throw new Error("API response did not contain image data.");
+            }
+
+            return `data:image/png;base64,${base64Data}`;
+        }
+
+        /** Handles the image generation button click. */
+        async function handleImageGeneration() {
+            const prompt = imageInput.value.trim();
+            if (!prompt) {
+                showStatus("Please enter a description for the image.", 'error');
+                return;
+            }
+
+            // Clear previous content
+            imageOutput.innerHTML = '';
+            imagePlaceholder.textContent = 'Generating... this may take a moment.';
+            imagePlaceholder.classList.remove('hidden');
+
+            try {
+                // START LOADING
+                setLoading(imageButton, imageSpinner, true, 'Generate');
+
+                const imageUrl = await fetchImageResponse(prompt);
+
+                // Hide placeholder and display image
+                imagePlaceholder.classList.add('hidden');
+                imageOutput.innerHTML = `<img src="${imageUrl}" alt="${prompt}" class="w-full h-full object-contain rounded-lg shadow-xl" />`;
+                showStatus("Image generated successfully!", 'success');
+
+            } catch (error) {
+                console.error("Image API Error:", error);
+                imagePlaceholder.textContent = "Generation failed. Check API key and console for errors.";
+                imagePlaceholder.classList.remove('hidden');
+                showStatus("Failed to generate image. Check the console for details.", 'error');
+            } finally {
+                // STOP LOADING
+                setLoading(imageButton, imageSpinner, false, 'Generate');
+            }
+        }
+        
+        // --- Event Listener Setup ---
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // Ensure initial state is set correctly
+            setMode('chat');
+
+            // 1. Attach listeners for the mode tabs
+            chatTab.addEventListener('click', () => setMode('chat'));
+            imageTab.addEventListener('click', () => setMode('image'));
+            
+            // 2. Attach listeners for the buttons
+            chatButton.addEventListener('click', handleChat);
+            imageButton.addEventListener('click', handleImageGeneration);
+
+            // 3. Allow pressing Enter key in chat input (this was already correct)
+            chatInput.addEventListener('keypress', function (e) {
+                if (e.key === 'Enter') {
+                    handleChat();
+                }
+            });
+        });
+
+    </script>
+
+</body>
+</html>
